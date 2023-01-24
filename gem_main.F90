@@ -88,7 +88,8 @@ program gem_main
         call MPI_BARRIER(MPI_COMM_WORLD,ierr)
     end do
 
-    100 call MPI_FINALIZE(ierr)
+    100 print *, "Exiting"
+	!call MPI_FINALIZE(ierr)
 
 end program gem_main
 

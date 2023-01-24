@@ -1097,7 +1097,7 @@ end subroutine ppinit_decomp
 !===========================================================================
   SUBROUTINE ppexit
     INTEGER :: ierr
-    CALL MPI_FINALIZE(ierr)
+    !CALL MPI_FINALIZE(ierr)
     STOP
   END SUBROUTINE ppexit
 !
