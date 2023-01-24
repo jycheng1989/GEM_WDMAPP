@@ -1051,9 +1051,10 @@ tottm_5=end_tm-start_tm
 subroutine ppinit_mpi(idproc,nproc)
   use mpi
   integer, intent(out) :: idproc,nproc
-  integer :: ierr,npp
+  integer :: ierr,npp,provided
 
-  call mpi_init(ierr)
+  !call mpi_init(ierr)
+  call mpi_init_thread(MPI_THREAD_MULTIPLE, provided, ierr)
   if (ierr.ne.MPI_SUCCESS) then
     write(*,*) 'problem with mpi_init: ierr=',ierr
     stop
