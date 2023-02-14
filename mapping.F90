@@ -62,10 +62,10 @@ module mapping
   type(mapping_XGC_GEM_linear_coef_type) :: mapping_XGC_GEM_linear_coef
 
   !3d density/field for GEM
-  real, dimension(:,:,:), allocatable :: density_3d,field_3d
+  real, dimension(:,:,:), allocatable :: density_3d!,field_3d
 
   !3d density/field for XGC
-  real, dimension(:,:), allocatable :: pot_density_3d,pot_field_3d
+  real, dimension(:,:), allocatable :: pot_density_3d!,pot_field_3d
 
   !MPI decomposition for mapping
   integer :: x_id,gx_id,gxg_id,cce_surface_start,cce_surface_end,x_comm,gx_group,gx_comm,group_world 
@@ -206,10 +206,16 @@ subroutine mapping_init
   call mpi_bcast(grid%surf_len, isize, MPI_INTEGER, 0, mpi_comm_world, ierr)
   isize=grid%surf_maxlen*grid%npsi_surf
   call mpi_bcast(grid%surf_idx, isize, MPI_INTEGER, 0, mpi_comm_world, ierr)
+
+  call mpi_barrier(mpi_comm_world,ierr)
+  if(myid==0)then
+     write(111,*)'after broadcast'
+     call flush(111)
+  endif
  
   !caculate cce_all_field_node_number,cce_all_surface_node_number,cce_all_node_number
   cce_all_surface_node_number=grid%surf_idx(grid%surf_len(cce_last_surface),cce_last_surface)-grid%surf_idx(1,cce_first_surface)+1
-  cce_all_node_number=grid%surf_idx(grid%surf_len(grid%npsi_surf),grid%npsi_surf)-grid%surf_idx(1,1)+1
+  cce_all_node_number=grid%nnode
   !theta in each node
   allocate(grid%theta_geo(n_n),grid%theta_flx(n_n))
   allocate(surf_idx_local(grid%surf_maxlen),theta_flux(grid%surf_maxlen))
@@ -249,19 +255,19 @@ subroutine mapping_init
   !init the 3d data
   !3d density/field for GEM
   allocate(density_3d(0:imx,0:jmx,0:kmx))
-  allocate(field_3d(0:imx,0:jmx,0:kmx))
+  !allocate(field_3d(0:imx,0:jmx,0:kmx))
   !3d density/field for XGC
   allocate(pot_density_3d(cce_all_node_number,nphi))
-  allocate(pot_field_3d(cce_all_node_number,nphi))
+  !allocate(pot_field_3d(cce_all_node_number,nphi))
   call mpi_barrier(mpi_comm_world,ierr)
   if(myid==0)then
      write(111,*)'after allocate pot','imx,jmx,kmx',imx,jmx,kmx,'cce_all_surface_node_number,nphi',cce_all_surface_node_number,nphi,'cce_all_node_number,nphi',cce_all_node_number,nphi
      call flush(111)
   endif
   density_3d=0.0
-  field_3d=0.0
+  !field_3d=0.0
   pot_density_3d=0.0
-  pot_field_3d=0.0  
+  !pot_field_3d=0.0  
   
 #ifdef __MAP_PARALLEL
   call mpi_barrier(mpi_comm_world,ierr)
@@ -274,15 +280,28 @@ subroutine mapping_init
   !if(gx_id==0)then
     if(coef_opt==0)then
       !GEM to XGC
-      if(myid==0)write(111,*)'coef begins',MPI_WTIME()
+      call mpi_barrier(mpi_comm_world,ierr)
+      if(myid==0)then
+        write(111,*)'coef begins',MPI_WTIME()
+        call flush(111)
+      endif
       call setup_GEM_XGC_coef_new(mapping_GEM_XGC_linear_coef,grid)
-      if(myid==0)write(111,*)'GEM to XGC coef',MPI_WTIME()
+      call mpi_barrier(mpi_comm_world,ierr)
+      if(myid==0)then
+        write(111,*)'GEM to XGC coef',MPI_WTIME()
+        call flush(111)
+      endif
       !XGC to GEM
       call setup_XGC_GEM_coef_new(mapping_XGC_GEM_linear_coef,grid)
-      if(myid==0)write(111,*)'XGC to GEM coef',MPI_WTIME()
+      call mpi_barrier(mpi_comm_world,ierr)
+      if(myid==0)then
+        write(111,*)'XGC to GEM coef',MPI_WTIME()
+        call flush(111)
+      endif
+       
       !store coef
       !call store_coef_new(mapping_GEM_XGC_linear_coef,mapping_XGC_GEM_linear_coef,grid)
-      if(myid==0)write(111,*)'store coef',MPI_WTIME()
+      !if(myid==0)write(111,*)'store coef',MPI_WTIME()
     else
       !restore coef
       !call restore_coef(mapping_GEM_XGC_linear_coef,mapping_XGC_GEM_linear_coef,grid)
@@ -331,7 +350,7 @@ subroutine mapping_mpi_decomposition(imx,x_id,gx_id,cce_surface_start,cce_surfac
 #ifdef EQUIL_OUTPUT
   use gem_equil, only:nr,ntheta,thflx,qhat,yfn,radius,hght,thfnz,zfnth,sf,bfld,dbdth,grcgt,jacob
 #endif
-#ifdef __ADIOS2
+#ifdef __ADIOS2__TEST
 #include "adios2_macro.h"
   use adios2_comm_module
 #endif
@@ -346,7 +365,7 @@ subroutine mapping_mpi_decomposition(imx,x_id,gx_id,cce_surface_start,cce_surfac
   character(512) :: cce_filename
   integer*8 :: buf_id,buf_size,total_size
 
-#ifdef __ADIOS2
+#ifdef __ADIOS2__TEST
   type(adios2_engine), save :: engine
   type(adios2_io), save :: io
   type(adios2_variable) ::var
@@ -420,34 +439,7 @@ subroutine mapping_mpi_decomposition(imx,x_id,gx_id,cce_surface_start,cce_surfac
  if(myid==0)then
     !write(*,*)'sf=',sf
     cce_filename='equil.bp'
-#ifndef __ADIOS2
-    call ADIOS_OPEN(buf_id,'equil',cce_filename,'w',MPI_COMM_SELF,err)
-    buf_size=4*2+40*(nr+1)*(ntheta+1)+16*(ntheta+1)+100 !last 100 is buffer
-
-    call ADIOS_GROUP_SIZE(buf_id,buf_size,total_size,err)
-    call ADIOS_WRITE(buf_id,"nr_1",nr+1,err)
-    call ADIOS_WRITE(buf_id,"ntheta_1",ntheta+1,err)
-    call ADIOS_WRITE(buf_id,"npsi_surf",grid%npsi_surf,err)
-    call ADIOS_WRITE(buf_id,"surf_maxlen",grid%surf_maxlen,err)
-    call ADIOS_WRITE(buf_id,"nnode",grid%nnode,err)
-    !actual data
-    call ADIOS_WRITE(buf_id,"thflx",thflx,err)
-    call ADIOS_WRITE(buf_id,"qhat",qhat,err)
-    call ADIOS_WRITE(buf_id,"yfn",yfn,err)
-    call ADIOS_WRITE(buf_id,"sf",sf,err)
-    call ADIOS_WRITE(buf_id,"radius",radius,err)
-    call ADIOS_WRITE(buf_id,"hght",hght,err)
-    call ADIOS_WRITE(buf_id,"zfnth",zfnth,err)
-    call ADIOS_WRITE(buf_id,"thfnz",thfnz,err)
-    call ADIOS_WRITE(buf_id,"surf_len",grid%surf_len,err)
-    call ADIOS_WRITE(buf_id,"surf_idx",grid%surf_idx,err)
-    call ADIOS_WRITE(buf_id,"rz",grid%x,err)
-    call ADIOS_WRITE(buf_id,"bfld",bfld,err)
-    call ADIOS_WRITE(buf_id,"dbdth",dbdth,err)
-    call ADIOS_WRITE(buf_id,"grcgt",grcgt,err)
-    call ADIOS_WRITE(buf_id,"jacob",jacob,err)
-    call ADIOS_CLOSE(buf_id,err)
-#else
+#ifdef __ADIOS2__TEST
     
     if(init==0)then
       call adios2_declare_io(io, adios2obj, 'equil', err)
@@ -669,34 +661,50 @@ subroutine mapping_GEM_XGC(density_gem,density_xgc,den_tmp,grid,coef)
 end subroutine mapping_GEM_XGC
 #else
 !mapping from GEM to XGC
-subroutine mapping_GEM_XGC_new(density_gem,density_xgc,den_tmp,grid,coef)
+subroutine mapping_GEM_XGC_new(den_tmp,grid,coef,nor)
   !use coupling_core_edge, only:cce_first_surface,cce_last_surface,cce_all_surface_node_number,nphi
   use gem_com, only:MyId,imx,jmx,kmx
 
   integer :: ierr
-  real, intent(inout) :: density_gem(0:imx,0:jmx,0:kmx)
-  real :: density_xgc_tmp(cce_all_surface_node_number,nphi)
-  real, intent(out) :: density_xgc(cce_all_node_number,nphi)
+  !real, intent(inout) :: density_gem(0:imx,0:jmx,0:kmx)
+  !real :: density_xgc_tmp(cce_all_surface_node_number,nphi)
+  !real, intent(out) :: density_xgc(cce_all_node_number,nphi)
   real, intent(inout) :: den_tmp(0:imx,0:jmx,0:1)
   type(grid_type), intent(in) :: grid
   type(mapping_GEM_XGC_linear_coef_type), intent(in) :: coef
+  real, intent(in) :: nor
 
   integer :: node_start,node_end
-  density_gem=0.0
-  density_xgc=0.0
-  density_xgc_tmp=0.0
+  density_3d=0.0
+  pot_density_3d=0.0
+  !density_xgc_tmp=0.0
 
   !generate the 3d density
-  if(MyId==0)write(*,*)'before 3d GEM',MPI_WTIME()
-  call generate_3d_density_GEM(density_gem,den_tmp)
+  call mpi_barrier(mpi_comm_world,ierr)
+  if(MyId==0)then
+     write(111,*)'before 3d GEM',MPI_WTIME()
+     call flush(111)
+  endif
+  call generate_3d_density_GEM(den_tmp)
 
-  if(MyId==0)write(*,*)'after 3d GEM, begin mapping GEM XGC',MPI_WTIME()
+  call mpi_barrier(mpi_comm_world,ierr)
+  if(MyId==0)then
+    write(111,*)'after 3d GEM, begin mapping GEM XGC',MPI_WTIME()
+    call flush(111)
+  endif
   !mapping
-  call mapping_GEM_XGC_core_new(density_gem,density_xgc_tmp,grid,coef)
-  if(Myid==0)write(*,*)'after mapping GEM XGC',MPI_WTIME()
   node_start=grid%surf_idx(1,cce_first_surface)
   node_end=grid%surf_idx(grid%surf_len(cce_last_surface),cce_last_surface)
-  density_xgc(node_start:node_end,:)=density_xgc_tmp(1:cce_all_surface_node_number,:) 
+  !call mapping_GEM_XGC_core_new(density_3d,pot_density_3d(node_start:node_end,:),grid,coef)
+  call mapping_GEM_XGC_core_new(node_start,node_end,grid,coef,nor)
+  call mpi_barrier(mpi_comm_world,ierr)
+  if(Myid==0)then
+    write(111,*)'after mapping GEM XGC',MPI_WTIME()
+    call flush(111)
+  endif
+  !node_start=grid%surf_idx(1,cce_first_surface)
+  !node_end=grid%surf_idx(grid%surf_len(cce_last_surface),cce_last_surface)
+  !density_xgc(node_start:node_end,:)=density_xgc_tmp(1:cce_all_surface_node_number,:) 
   call mpi_barrier(mpi_comm_world,ierr)
 
 end subroutine mapping_GEM_XGC_new
@@ -704,26 +712,25 @@ end subroutine mapping_GEM_XGC_new
 #endif
 
 !generate the 3d density data in GEM
-subroutine generate_3d_density_GEM(density_gem,den_tmp)
+subroutine generate_3d_density_GEM(den_tmp)
   use gem_com, only:imx,jmx,kmx,grid_comm,tube_comm,gclr,tclr,glst,tlst
 
   integer :: ierr,icount
   real, intent(inout) :: den_tmp(0:imx,0:jmx,0:1)
-  real, intent(out) :: density_gem(0:imx,0:jmx,0:kmx)
+  !real, intent(out) :: density_gem(0:imx,0:jmx,0:kmx)
   real :: density_gem_tmp(0:imx,0:jmx,0:kmx)
 
   !den_tmp=den(1,:,:,:)/q(1)
-  density_gem=0.0
+  !density_gem=0.0
   !store the density each z domain  
-  density_gem(:,:,gclr)=den_tmp(:,:,0)
+  density_3d(:,:,gclr)=den_tmp(:,:,0)
   if(gclr==0)then
-    density_gem(:,:,kmx)=den_tmp(:,:,0)
+    density_3d(:,:,kmx)=den_tmp(:,:,0)
   endif
 
   !sum of the 3d density  
   icount=(imx+1)*(jmx+1)*(kmx+1)
-  call mpi_allreduce(density_gem,density_gem_tmp,icount,MPI_REAL8,mpi_sum,mpi_comm_world,ierr)
-  density_gem=density_gem_tmp
+  call mpi_allreduce(MPI_IN_PLACE,density_3d,icount,MPI_REAL8,mpi_sum,mpi_comm_world,ierr)
 
   call mpi_barrier(mpi_comm_world,ierr)
 
@@ -838,35 +845,47 @@ end subroutine mapping_GEM_XGC_core
 
 #else
 !the major part for mapping from GEM to XGC
-subroutine mapping_GEM_XGC_core_new(density_gem,density_xgc,grid,coef)
+subroutine mapping_GEM_XGC_core_new(start_num,end_num,grid,coef,nor)
   !use coupling_core_edge, only:cce_first_surface,cce_last_surface,cce_all_surface_node_number,nphi
   use gem_com, only:imx,jmx,kmx,pi,pi2,lz,myid,pi
   use gem_equil, only:ntheta,delz,thfnz,q0,dth,thflx
   use EZspline_obj
   use EZspline
 
+  integer, intent(in) :: start_num, end_num
+  real, intent(in) :: nor
   type(grid_type), intent(in) :: grid
   type(mapping_GEM_XGC_linear_coef_type), intent(in) :: coef
   type(EZspline1_r8) :: spl_z,spl_thflx
-  real, intent(in) :: density_gem(0:imx,0:jmx,0:kmx)
-  real, intent(out) :: density_xgc(cce_all_surface_node_number,nphi)
+  !real, intent(in) :: density_gem(0:imx,0:jmx,0:kmx)
+  !real, intent(out) :: density_xgc(1:cce_all_surface_node_number,nphi)
   integer :: i,ii,j,iii,idx_coef,icount,ierr,j1,j2,k,node_start,local_start,i_diag
   integer :: surf_len_local,surf_idx_local(grid%surf_maxlen)
   real :: w1,w2,wz0,wz1,th_tmp,theta_z_gem(0:kmx),density_gem_z(0:kmx), &
     theta_local(grid%surf_maxlen),theta_flux(grid%surf_maxlen),density_gem_z_xgc(0:jmx,grid%surf_maxlen), &
-    theta_grid(0:ntheta),z_gem(0:kmx),theta_z_gem_inv(0:kmx),density_gem_z_inv(0:kmx),theta_z_gem_flx(0:kmx),density_xgc_tmp(cce_all_surface_node_number,nphi)
+    theta_grid(0:ntheta),z_gem(0:kmx),theta_z_gem_inv(0:kmx),density_gem_z_inv(0:kmx),theta_z_gem_flx(0:kmx)!,density_xgc_tmp(cce_all_surface_node_number,nphi)
   real, external :: interpol_spl_1d
 
   logical, save :: test_logical=.true. 
 
-  density_xgc=0.0
+  !density_xgc=0.0
+
+  call mpi_barrier(mpi_comm_world,ierr)
+  if(myid==0)then
+    write(111,*)'gx_id, before real mapping', gx_id, nphi, cce_all_surface_node_number
+    !write(111,*)'density_xgc',density_xgc
+    call flush(111)
+  endif
 
   if(gx_id==0)then
     !the start node number
     node_start=grid%surf_idx(1,cce_first_surface)
     local_start=grid%surf_idx(1,cce_surface_start)
 
-    if(myid==0)write(*,*)'point 1, GEM_XGC,',MPI_WTIME()
+    if(myid==0)then
+       write(111,*)'point 1, GEM_XGC,',MPI_WTIME()
+       call flush(111)
+    endif
     !the theta in z direction
     do i=0,kmx
       z_gem(i)=real(i)/real(kmx)*lz
@@ -880,32 +899,38 @@ subroutine mapping_GEM_XGC_core_new(density_gem,density_xgc,grid,coef)
     !write(111,*)'thfnz',thfnz/pi
     !write(111,*)'theta_z_gem',theta_z_gem/pi
     !call flush(111)
-    if(myid==0)write(*,*)'point 2, GEM_XGC,',MPI_WTIME()
+    if(myid==0)then
+       write(111,*)'point 2, GEM_XGC,',MPI_WTIME()
+       call flush(111)
+    endif
     theta_grid(ntheta/2)=0.
     do i=ntheta/2+1,ntheta
       th_tmp=real(i-ntheta/2)*dth
       theta_grid(i)=th_tmp
       theta_grid(ntheta-i)=-th_tmp
     enddo
-    if(myid==0)write(*,*)'point 3, GEM_XGC,',MPI_WTIME()
+    if(myid==0)then
+      write(111,*)'point 3, GEM_XGC,',MPI_WTIME()
+      call flush(111)
+    endif
     if(q0<0)then
       do i=0,kmx
         theta_z_gem_inv(i)=theta_z_gem(kmx-i)
       enddo
       theta_z_gem=theta_z_gem_inv
     endif
-    if(myid==0)write(*,*)'point 4, GEM_XGC,',MPI_WTIME()
+    if(myid==0)then
+      write(111,*)'point 4, GEM_XGC,',MPI_WTIME()
+      call flush(111)
+    endif
     !generate each surface
     do ii=cce_surface_start,cce_surface_end
-      if(ii==150)write(*,*)'point 4.0, GEM_XGC',MPI_WTIME()
       surf_idx_local=grid%surf_idx(:,ii)
       surf_len_local=grid%surf_len(ii)
-      if(ii==150)write(*,*)'point 4.1, GEM_XGC',MPI_WTIME() 
       theta_local=0.0
       do j=1,surf_len_local
         theta_flux(j)=grid%theta_flx(surf_idx_local(j))
       enddo
-      if(ii==150)write(*,*)'point 4.2, GEM_XGC',MPI_WTIME() 
       !i is the idex in x direction
      ! do i_diag=0,size(theta_grid)-2
      !      if((theta_grid(i_diag+1)-theta_grid(i_diag))<0)then
@@ -921,13 +946,12 @@ subroutine mapping_GEM_XGC_core_new(density_gem,density_xgc,grid,coef)
         theta_z_gem_flx(k)=interpol_spl_1d(theta_z_gem(k),0,spl_thflx)       
       enddo
       call finalize_1d_interpolation(spl_thflx) 
-      if(myid==0 .and. ii==150)write(*,*)'point 4.3, GEM_XGC',MPI_WTIME()
       !generate the (x,y,z_xgc) through cubic interpolation
       density_gem_z_xgc=0.0
       do j=0,jmx
         !the gem data in z direction
         do k=0,kmx
-          density_gem_z(k)=density_gem(i,j,k)
+          density_gem_z(k)=density_3d(i,j,k)
         enddo
         if(q0<0)then
           do k=0,kmx
@@ -956,6 +980,7 @@ subroutine mapping_GEM_XGC_core_new(density_gem,density_xgc,grid,coef)
         !write(111,*)thfnz/pi
         !call flush(111)
         call init_1d_interpolation(spl_z,theta_z_gem_flx,density_gem_z,kmx+1,.false.)
+        !!$omp parallel do
         do k=1,surf_len_local
           density_gem_z_xgc(j,k)=interpol_spl_1d(theta_flux(k),0,spl_z)
           !if(abs(theta_flux(k))==pi)then
@@ -964,7 +989,6 @@ subroutine mapping_GEM_XGC_core_new(density_gem,density_xgc,grid,coef)
         enddo
         call finalize_1d_interpolation(spl_z)
       enddo
-      if(ii==150)write(*,*)'point 4.4, GEM_XGC',MPI_WTIME()
       !if(ii==50 .and. (test_mapping_logical .eq. .true.))then
       !  test_mapping_logical = .false.
       !  open(124,file='test_GEM_XGC_z.out',status='unknown',position='append')
@@ -974,30 +998,28 @@ subroutine mapping_GEM_XGC_core_new(density_gem,density_xgc,grid,coef)
       !  close(124)
       !endif
       !generate the xgc data through linear interpolation
+      !!$omp parallel do
       do j=1,surf_len_local
         do k=1,nphi
           !the index for density_xgc and coef is from 1 to cce_all_surface_node_number
           idx_coef=surf_idx_local(j)-local_start+1
-          iii=surf_idx_local(j)-node_start+1
+          iii=surf_idx_local(j)-node_start+1+start_num
           j1=coef%jy1(idx_coef,k)
           j2=coef%jy2(idx_coef,k)
           w1=coef%wy1(idx_coef,k)
           w2=coef%wy2(idx_coef,k)
-          density_xgc(iii,k)=w1*density_gem_z_xgc(j1,j)+w2*density_gem_z_xgc(j2,j)
+          pot_density_3d(iii,k)=w1*density_gem_z_xgc(j1,j)+w2*density_gem_z_xgc(j2,j)*nor
         enddo
       enddo
-      if(ii==150)write(*,*)'point 4.5, GEM_XGC',MPI_WTIME()
     enddo
   endif
     
-  if(myid==0)write(*,*)'point 5, GEM_XGC,',MPI_WTIME()
-  icount=cce_all_surface_node_number*nphi
-  density_xgc_tmp=0.0
-  call mpi_allreduce(density_xgc,density_xgc_tmp,icount,MPI_REAL8,mpi_sum,x_comm,ierr)
-  density_xgc=density_xgc_tmp
-  call mpi_bcast(density_xgc,icount,MPI_REAL8,0,mpi_comm_world,ierr)
+  !if(myid==0)write(*,*)'point 5, GEM_XGC,',MPI_WTIME()
+  icount=cce_all_node_number*nphi
+  call mpi_allreduce(MPI_IN_PLACE,pot_density_3d,icount,MPI_REAL8,mpi_sum,x_comm,ierr)
+  call mpi_bcast(pot_density_3d,icount,MPI_REAL8,0,mpi_comm_world,ierr)
   call mpi_barrier(gx_comm,ierr)
-  if(myid==0)write(*,*)'point 6, GEM_XGC,',MPI_WTIME()
+  !if(myid==0)write(*,*)'point 6, GEM_XGC,',MPI_WTIME()
 end subroutine mapping_GEM_XGC_core_new
 
 #endif
@@ -1132,7 +1154,7 @@ subroutine setup_GEM_XGC_coef_new(coef,grid)
       call flush(111)
     endif
     do ii=cce_surface_start,cce_surface_end
-      if(ii==150)write(*,*)'point 2.1, GEM XGC steup,',MPI_WTIME()
+      !if(ii==150)write(*,*)'point 2.1, GEM XGC steup,',MPI_WTIME()
       surf_idx_local=grid%surf_idx(:,ii)
       surf_len_local=grid%surf_len(ii)
       q_local=sf(ii-cce_first_surface) !the local q for the surface
@@ -1147,10 +1169,11 @@ subroutine setup_GEM_XGC_coef_new(coef,grid)
       enddo
 
       call finalize_1d_interpolation(spl_thflx)
-      if(ii==150)write(*,*)'point 2.2, GEM XGC steup,',MPI_WTIME()
+      !if(ii==150)write(*,*)'point 2.2, GEM XGC steup,',MPI_WTIME()
       if(ii==50)then
         open(123,file='coef_GEM_XGC.out',status='unknown',position='append')
       endif
+      !!$omp parallel do
       do i=1,surf_len_local
         do j=1,nphi
           phi_tmp=real(j-1)*pi2/real(nphi)/real(nwedge)
@@ -1169,7 +1192,7 @@ subroutine setup_GEM_XGC_coef_new(coef,grid)
           endif
         enddo
       enddo
-      if(ii==150)write(*,*)'point 2.3, GEM XGC steup,',MPI_WTIME()
+      !if(ii==150)write(*,*)'point 2.3, GEM XGC steup,',MPI_WTIME()
       if(ii==50)then
         close(123)
       endif
@@ -1247,7 +1270,7 @@ subroutine mapping_XGC_GEM(field_xgc,field_gem,field_gem_3d,grid,coef)
   field_gem=0.0
   field_gem_3d=0.0
 
-  if(MyId==0)write(*,*)'before mapping XGC-GEM',MPI_WTIME()
+  !if(MyId==0)write(*,*)'before mapping XGC-GEM',MPI_WTIME()
   if(MyId==0)then
     !mapping
     call mapping_XGC_GEM_core(field_xgc,field_gem_3d,grid,coef)
@@ -1256,7 +1279,7 @@ subroutine mapping_XGC_GEM(field_xgc,field_gem,field_gem_3d,grid,coef)
 
   call mpi_barrier(mpi_comm_world,ierr)
 
-  if(MyId==0)write(*,*)'after mapping XGC GEM, begin GEM field 3d-2d',MPI_WTIME()
+  !if(MyId==0)write(*,*)'after mapping XGC GEM, begin GEM field 3d-2d',MPI_WTIME()
   !generate the field in GEM each z domain
   call generate_field_gem(field_gem,field_gem_3d)
   !if(Myid==0)then
@@ -1267,36 +1290,37 @@ subroutine mapping_XGC_GEM(field_xgc,field_gem,field_gem_3d,grid,coef)
 end subroutine mapping_XGC_GEM
 #else
 !mapping from XGC to GEM
-subroutine mapping_XGC_GEM_new(field_xgc,field_gem,field_gem_3d,grid,coef)
+subroutine mapping_XGC_GEM_new(field_gem,grid,coef,nor)
   !use coupling_core_edge, only:cce_first_surface,cce_last_surface,cce_all_surface_node_number,nphi,&
   !  cce_first_field,cce_last_field,cce_all_field_node_number,cce_all_node_number
   use gem_com, only:MyId,imx,jmx,kmx,pi,pi2
 
   integer :: ierr
-  real, intent(inout) :: field_xgc(cce_all_node_number,nphi)
+  !real, intent(inout) :: field_xgc(cce_all_node_number,nphi)
   real, intent(out) :: field_gem(0:imx,0:jmx,0:1)
-  real, intent(out) :: field_gem_3d(0:imx,0:jmx,0:kmx)
+  real, intent(in) :: nor
+  !real, intent(out) :: field_gem_3d(0:imx,0:jmx,0:kmx)
   type(grid_type), intent(in) :: grid
   type(mapping_XGC_GEM_linear_coef_type), intent(in) :: coef
 
   field_gem=0.0
-  field_gem_3d=0.0
+  density_3d=0.0
 
-  if(MyId==0)write(*,*)'before mapping XGC-GEM',MPI_WTIME()
+  !if(MyId==0)write(*,*)'before mapping XGC-GEM',MPI_WTIME()
   !mapping
-  call mapping_XGC_GEM_core_new(field_xgc,field_gem_3d,grid,coef)
+  call mapping_XGC_GEM_core_new(grid,coef,nor)
   !write(*,*)'after mapping core, field_pot_3d=', field_xgc(63388,1),'field_gem_3d=', field_gem_3d(imx/2,jmx/2,0)
 
   call mpi_barrier(mpi_comm_world,ierr)
 
-  if(MyId==0)write(*,*)'after mapping XGC GEM, begin GEM field 3d-2d',MPI_WTIME()
+  !if(MyId==0)write(*,*)'after mapping XGC GEM, begin GEM field 3d-2d',MPI_WTIME()
   !generate the field in GEM each z domain
-  call generate_field_gem(field_gem,field_gem_3d)
+  call generate_field_gem(field_gem)
   !if(Myid==0)then
     !write(*,*)'phi=',field_gem(imx/2,jmx/2,0)
   !endif
   call mpi_barrier(mpi_comm_world,ierr)
-  if(MyId==0)write(*,*)'after GEM filed 3d-2d',MPI_WTIME()
+  !if(MyId==0)write(*,*)'after GEM filed 3d-2d',MPI_WTIME()
 end subroutine mapping_XGC_GEM_new
 #endif
 
@@ -1471,15 +1495,16 @@ end subroutine mapping_XGC_GEM_core
 
 #else
 !major part for mapping from XGC to GEM
-subroutine mapping_XGC_GEM_core_new(field_xgc,field_gem_3d,grid,coef)
+subroutine mapping_XGC_GEM_core_new(grid,coef,nor)
   !use coupling_core_edge, only:cce_first_surface,cce_last_surface,cce_all_surface_node_number,nphi,cce_all_node_number
   use gem_com, only:MyId,imx,jmx,kmx,pi,pi2,lz
   use gem_equil, only:delz,thfnz,ntheta
   use EZspline_obj
   use EZspline
 
-  real, intent(inout) :: field_xgc(cce_all_node_number,nphi)
-  real, intent(out) :: field_gem_3d(0:imx,0:jmx,0:kmx)
+  !real, intent(inout) :: field_xgc(cce_all_node_number,nphi)
+  !real, intent(out) :: field_gem_3d(0:imx,0:jmx,0:kmx)
+  real, intent(in) :: nor
   type(grid_type), intent(in) :: grid
   type(mapping_XGC_GEM_linear_coef_type), intent(in) :: coef
   type(EZspline1_r8) :: spl_theta
@@ -1493,9 +1518,10 @@ subroutine mapping_XGC_GEM_core_new(field_xgc,field_gem_3d,grid,coef)
   real :: field_local(grid%surf_maxlen,nphi),field_gem_z_xgc(0:jmx,grid%surf_maxlen),&
     field_gem_z_xgc_interpolation(0:jmx,grid%surf_maxlen+1),z_gem(0:kmx),field_gem_3d_tmp(0:imx,0:jmx,0:kmx)
  
-  field_gem_3d=0.0
+  !field_gem_3d=0.0
+  density_3d=0.0
   icount=cce_all_node_number*nphi
-  call mpi_bcast(field_xgc,icount,MPI_REAL8,0,mpi_comm_world,ierr)
+  call mpi_bcast(pot_density_3d,icount,MPI_REAL8,0,mpi_comm_world,ierr)
   call mpi_barrier(mpi_comm_world,ierr) 
   if(myid==0)then
     write(111,*)'point 0, XGC GEM,',MPI_WTIME()
@@ -1517,7 +1543,7 @@ subroutine mapping_XGC_GEM_core_new(field_xgc,field_gem_3d,grid,coef)
       do j=1,surf_len_local
         theta_local(j)=grid%theta_geo(surf_idx_local(j))
         do k=1,nphi
-          field_local(j,k)=field_xgc(surf_idx_local(j),k)
+          field_local(j,k)=pot_density_3d(surf_idx_local(j),k)
         enddo
       enddo
       if(ii==150)write(*,*)'point 0.2, XGC GEM,',MPI_WTIME()
@@ -1533,6 +1559,7 @@ subroutine mapping_XGC_GEM_core_new(field_xgc,field_gem_3d,grid,coef)
       !generate (x,y,z_xgc) through linear interpolation
       field_gem_z_xgc=0.0
       do j=0,jmx
+        !!$omp parallel do
         do k=1,surf_len_local
           z1=coef%z1(i+1,j,k)
           z2=coef%z2(i+1,j,k)
@@ -1560,6 +1587,7 @@ subroutine mapping_XGC_GEM_core_new(field_xgc,field_gem_3d,grid,coef)
       enddo
       theta_interpolation(surf_len_local+1)=pi2
       !extend field_gem_z_xgc for cubic interpolation
+      !!$omp parallel do
       do j=1,surf_len_local
         field_gem_z_xgc_interpolation(:,j)=field_gem_z_xgc(:,j)
       enddo
@@ -1571,7 +1599,7 @@ subroutine mapping_XGC_GEM_core_new(field_xgc,field_gem_3d,grid,coef)
         call init_1d_interpolation(spl_theta,theta_interpolation(1:(surf_len_local+1)),field_gem_z_xgc_interpolation(j,1:(surf_len_local+1)),surf_len_local+1,.false.)
         do k=0,kmx
           z_tmp=modulo(theta_z_gem(k)-theta_start,pi2)
-          field_gem_3d(iii,j,k)=interpol_spl_1d(z_tmp,0,spl_theta)        
+          density_3d(iii,j,k)=interpol_spl_1d(z_tmp,0,spl_theta)*nor        
         enddo
         call finalize_1d_interpolation(spl_theta)
       enddo
@@ -1580,29 +1608,30 @@ subroutine mapping_XGC_GEM_core_new(field_xgc,field_gem_3d,grid,coef)
   endif
 
   icount=(imx+1)*(jmx+1)*(kmx+1)
-  call mpi_allreduce(field_gem_3d,field_gem_3d_tmp,icount,MPI_REAL8,mpi_sum,x_comm,ierr)
+  call mpi_allreduce(MPI_IN_PLACE,density_3d,icount,MPI_REAL8,mpi_sum,x_comm,ierr)
   call mpi_barrier(x_comm,ierr)
-  if(myid==0)field_gem_3d=field_gem_3d_tmp
-  if(myid==0)write(*,*)'point 1, XGC GEM,',MPI_WTIME()
+  
+  !if(myid==0)field_gem_3d=field_gem_3d_tmp
+  !if(myid==0)write(*,*)'point 1, XGC GEM,',MPI_WTIME()
 
 end subroutine mapping_XGC_GEM_core_new
 
 #endif
 
 !release the GEM 3d data to each domain
-subroutine generate_field_gem(field_gem,field_gem_3d)
+subroutine generate_field_gem(field_gem)
   use gem_com, only:imx,jmx,kmx,gclr
 
   real, intent(out) :: field_gem(0:imx,0:jmx,0:1)
-  real, intent(inout) :: field_gem_3d(0:imx,0:jmx,0:kmx)
+  !real, intent(inout) :: field_gem_3d(0:imx,0:jmx,0:kmx)
 
   integer :: ierr
 
   !broadcast the field_gem_3d
-  call mpi_bcast(field_gem_3d, (imx+1)*(jmx+1)*(kmx+1), MPI_REAL8, 0, mpi_comm_world, ierr)
+  call mpi_bcast(density_3d, (imx+1)*(jmx+1)*(kmx+1), MPI_REAL8, 0, mpi_comm_world, ierr)
   call mpi_barrier(mpi_comm_world,ierr)
 
-  field_gem(:,:,0:1)=field_gem_3d(:,:,gclr:(gclr+1))
+  field_gem(:,:,0:1)=density_3d(:,:,gclr:(gclr+1))
 
 end subroutine generate_field_gem
 
@@ -2205,7 +2234,6 @@ subroutine restore_coef(coef_GEM_XGC,coef_XGC_GEM,grid)
 end subroutine restore_coef
 #endif 
 end module mapping
-
 !< Initializes a simple 1D cubic spline interpolation for use with
 !< interpol_spl_1d. Sample points are
 !< denoted (x_i,y_i)

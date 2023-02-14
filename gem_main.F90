@@ -82,14 +82,13 @@ program gem_main
     if(ifluid==1)call weatxeps(1)
     lasttm=MPI_WTIME()
     tottm=lasttm-starttm
-    !  write(*,*)'ps time=',pstm,'tot time=',tottm
+    if(myid==0) write(*,*)'ps time=',pstm,'tot time=',tottm
     do i=0,last 
         !            if(myid==i)write(*,*)myid,mm(1),mme
         call MPI_BARRIER(MPI_COMM_WORLD,ierr)
     end do
 
-    100 print *, "Exiting"
-	!call MPI_FINALIZE(ierr)
+    100 call MPI_FINALIZE(ierr)
 
 end program gem_main
 
@@ -214,8 +213,8 @@ subroutine init
     mm1=imx*jmx*kmx*micell
     !mm2=int(imx,8)*int(jmx,8)*int(kmx,8)*int(mecell,8)
     mm2=imx*jmx*kmx*mecell
-    mmx=int(real(mm1/int(kmx*ntube))*1.5)
-    mmxe=int(real(mm2/int(kmx*ntube))*1.5)
+    mmx=int(real(mm1/int(kmx*ntube))*10)
+    mmxe=int(real(mm2/int(kmx*ntube))*10)
     call ppinit_decomp(myid,numprocs,ntube,tube_comm,grid_comm)
     call hybinit
     call mpi_barrier(mpi_comm_world,ierr)
@@ -653,8 +652,18 @@ subroutine ppush(n,ns)
     !$omp private(dapsdtp,delbxhp,delbyhp,dahdzp,aparhp,zdot0,zdot1) &    !MVPT
     !$omp reduction(+: mynopi)
 #else
-    !$acc parallel
+    !$acc parallel 
     !$acc loop gang vector private(rhox,rhoy)
+#endif
+#ifdef OpenMP_Thread
+    !$omp parallel do reducton (+: mynopi) !OpenMP CPU threading
+#endif
+#ifdef OpenMP_GPU
+    !$omp target target teams loop private(rhox,rhoy) !OpenMP GPU offloading (OpenMP v5.0)
+#endif
+#ifdef OpenACC
+    !$acc parallel
+    !$acc loop gang vector private(rho,rhoy) !OpenACC
 #endif
     do m=1,mm(ns)
         r=x2(m,ns)-0.5*lx+lr0
@@ -870,6 +879,9 @@ subroutine ppush(n,ns)
 
         if(itube==1)go to 333
         if(abs(pzp-pzi(m,ns))>pzcrit(ns).or.abs(vfac-eki(m,ns))>0.5*eki(m,ns))then
+#ifdef GPU
+       !$acc atomic
+#endif
             mynopi = mynopi+1
             x3(m,ns) = xii(m,ns)
             z3(m,ns) = z0i(m,ns)
@@ -1032,7 +1044,7 @@ subroutine cpush(n,ns)
     !$omp private(dapsdtp,delbxhp,delbyhp,dahdzp,aparhp,zdot0,zdot1) &    !MVPT
     !$omp reduction(+: myavewi,myke,mypfl_es,mypfl_em,myefl_es,myefl_em,mynos,mynowi)
 #else
-    !$acc parallel
+    !$acc parallel 
     !$acc loop gang vector private(rhox,rhoy,aparp)
 #endif
     do m=1,mm(ns)
@@ -1244,6 +1256,9 @@ subroutine cpush(n,ns)
             - dt*gamtoy*(1.5*sqrt(pi*vfac/ter)-3)*dtp/ter*fovg &           
             - dt*gamgyro*avwixezp
         if(abs(w3(m,ns)).gt.2.0.and.nonlin(ns)==1)then
+#ifdef GPU
+       !$acc atomic
+#endif
             mynowi = mynowi+1
             w3(m,ns) = 0.
             w2(m,ns) = 0.
@@ -1531,7 +1546,8 @@ subroutine grid1(ip,n)
 #endif
         !$omp reduction(+: myden,myjpar,mydt)
 #else
-        !$acc parallel
+        !$acc data copy(myden,myjpar,mydt)
+        !$acc parallel 
         !$acc loop gang vector private(rhox,rhoy)
 #endif
         do m=1,mm(ns)
@@ -1586,16 +1602,16 @@ subroutine grid1(ip,n)
 
             vfac=0.5*(mims(ns)*u3(m,ns)**2 + 2.*mu(m,ns)*b )
             wght=w3(m,ns)/dv
-#ifdef __GEM_XGC_COUPLING            
+#ifndef __GEM_XGC_COUPLING            
             psp=wx0*psi(i)+wx1*psi(i+1)
-            if(psp>4.630094e-1)then
+            if(psp>0.715)then
               wght=0.0
             endif
-            if(psp<3.340450e-1)then
+            if(psp<0.660)then
               wght=wght
             endif
-            if(psp>=3.340450e-1 .and. psp<=4.630094e-1)then
-              wght=wght*(4.630094e-1-psp)/(4.63094e-1-3.340450e-1)
+            if(psp>=0.660 .and. psp<=0.715)then
+              wght=wght*(0.715-psp)/(0.715-0.660)
             endif        
 #endif
             vpar = u3(m,ns) !linearly correct
@@ -1636,6 +1652,7 @@ subroutine grid1(ip,n)
         !$omp end parallel do
 #else
         !$acc end parallel
+        !$acc end data
 #endif
 
         if(idg.eq.1)write(*,*)myid,'pass ion grid1'
@@ -1658,6 +1675,11 @@ subroutine grid1(ip,n)
         enddo
 
 #ifdef __GEM_XGC_COUPLING
+        call mpi_barrier(mpi_comm_world,ierr)
+        if(myid==0)then
+          write(gemout,*)'den',den
+          call flush(gemout)
+        endif
         den_tmp=den(ns,:,:,:)/q(ns)
         call cce_send_density_ion(den_tmp)
         call cce_send_current_ion(jpar(ns,:,:,:))
@@ -1710,7 +1732,7 @@ subroutine grid1(ip,n)
     !$omp reduction(+:mydene,myupar,mydt)
 #else
     !$acc data copy(myupar,mydene,mydt)
-    !$acc parallel
+    !$acc parallel 
     !$acc loop gang vector
 #endif
     do m=1,mme
@@ -3589,7 +3611,7 @@ subroutine pint
     !$omp private(dapsdtp,delbxhp,delbyhp,dahdzp,aparhp,zdot0,zdot1) &    !MVPT
     !$omp reduction(+: myopz,myoen,myavptch,myaven)
 #else
-    !$acc parallel
+    !$acc parallel 
     !$acc loop gang vector
 #endif
     do m=1,mme
@@ -3849,6 +3871,9 @@ subroutine pint
         ieover = 0
         ipover = 0
         if(abs(pzp-pze(m))>pzcrite)then
+#ifdef GPU
+       !$acc atomic
+#endif
             myopz = myopz+1
             ipover = 1
         end if
@@ -3856,9 +3881,18 @@ subroutine pint
         !if isunie==1, marker control in velocity will be done primarily through the |vpar|>vsphere criterion
         !In that case, encrit should be large
         if(abs(vfac-eke(m))>0.5*eke(m).and.abs(x2e(m)-lx/2)<(lx/2-1))then
+#ifdef GPU
+   !$acc atomic
+#endif
             myoen = myoen+1
             ieover = 1
+#ifdef GPU
+   !$acc atomic
+#endif
             myaven = myaven+eke(m)
+#ifdef GPU
+   !$acc atomic
+#endif
             myavptch = myavptch+abs(vpar)/sqrt(2/emass*vfac)
         end if
         if(itube==1)goto 333
@@ -4046,7 +4080,7 @@ subroutine cint(n)
     !$omp private(dapsdtp,delbxhp,delbyhp,dahdzp,aparhp,zdot0,zdot1) &    !MVPT  
     !$omp reduction(+: myavewe,myke,mypfl_es,mypfl_em,myptrp,myefl_es,myefl_em,mynos,mytotn,mytrap,mynowe)
 #else
-    !$acc parallel
+    !$acc parallel 
     !$acc loop gang vector
 #endif
     do m=1,mme
@@ -4306,6 +4340,9 @@ subroutine cint(n)
         if(abs(w3e(m)).gt. wecut .and. nonline==1)then
             w3e(m) = 0.
             w2e(m) = 0.
+#ifdef GPU
+!$acc atomic
+#endif
             mynowe = mynowe+1
         end if
         if(x3e(m)<lx/20.0 .or. x3e(m)>(lx-lx/20.))then
@@ -4327,10 +4364,15 @@ subroutine cint(n)
             w2e(m) = 0.
         end if
 
-
+#ifdef GPU
+!$acc atomic
+#endif
         mytotn = mytotn+1
         if(isunie.eq.1)mytotn = mytotn+exp(-vfac)
-        mytrap = mytrap+1-ipass(m)
+#ifdef GPU
+!$acc atomic
+#endif
+        mytrap = mytrap+(1-ipass(m))
         if(isunie.eq.1)mytrap = mytrap+exp(-vfac)*(1-ipass(m))
 
         laps=anint((z3e(m)/lz)-.5)*(1-peritr)
@@ -4753,7 +4795,7 @@ subroutine jie(ip,n)
         !$omp reduction(+: myjpar,myjpex,myjpey,mydnidt)
 #else
         !$acc data copy(myjpar,myjpex,myjpey,mydnidt)
-        !$acc parallel
+        !$acc parallel 
         !$acc loop gang vector private(rhox,rhoy) private(gdum,aparp)
 #endif
         do m=1,mm(ns)
@@ -5568,13 +5610,13 @@ subroutine accumulate(n,ip)
 #ifdef __MAP_PARALLEL
     use mapping
 #endif
-#ifdef __ADIOS2
+#ifdef __ADIOS2_TEST
     use adios2_comm_module
 #endif
     implicit none
 
     integer :: n,i,j,k,ip,ns
-#ifdef __MAP_PARALLEL
+#ifdef __ADIOS2_TEST
     real :: den_tmp(0:imx,0:jmx,0:1)
     type(adios2_engine), save :: engine
     type(adios2_io), save :: io
@@ -5590,15 +5632,16 @@ subroutine accumulate(n,ip)
     write(ip_str,'(I0.1)')ip
 #endif
     if(ifluid==1)call setw(ip,n)
+    if(myid==0)write(*,*)'before grid1',MPI_WTIME()
     call grid1(ip,n)
     if(idg==1 .and. myid==0)then
         open(9, file='plot',status='unknown',position='append')
         write(9,*)'pass grid1'
         close(9)
     end if
-#ifndef __MAP_PARALLEL 
+#ifdef __ADIOS2_TEST 
     den_tmp=den(1,:,:,:)/q(1)
-    call mapping_GEM_XGC_new(density_3d,pot_density_3d,den_tmp,grid,mapping_GEM_XGC_linear_coef)
+    call mapping_GEM_XGC_new(den_tmp,grid,mapping_GEM_XGC_linear_coef)
     if(myid==0)then
       gdims_3d(1)=imx+1
       gdims_3d(2)=jmx+1
@@ -5990,12 +6033,12 @@ subroutine reporter(n)
 #ifdef __MAP_PARALLEL
     use mapping
 #endif
-#ifdef __ADIOS2
+#ifdef __ADIOS2__TEST
     use adios2_comm_module
 #endif
     implicit none
     integer :: n,i,j,k,ip
-#ifdef __MAP_PARALLEL
+#ifdef __ADIOS2__TEST
     real :: den_tmp(0:imx,0:jmx,0:1)
     type(adios2_engine), save :: engine
     type(adios2_io), save :: io
@@ -6033,7 +6076,7 @@ subroutine reporter(n)
     call outd(n)
     if(idg.eq.1)write(*,*)'pass outd'
 
-#ifdef __MAP_PARALLEL 
+#ifdef __ADIOS2__TEST 
     if(myid==0)then
       gdims_3d(1)=imx+1
       gdims_3d(2)=jmx+1
@@ -6183,7 +6226,8 @@ subroutine jpar0(ip,n,it,itp)
     !$omp private(dv,wght0,wght1,xt,yt,zt,aparp,ppar,fdum,gdum,fovg) &
     !$omp reduction(+: myupa0,myupa,myden0)
 #else
-!$acc parallel
+!$acc data copy(myupa,myupa0,myden0)
+!$acc parallel 
 !$acc loop gang vector
 #endif
     do m=1,mme
@@ -6364,6 +6408,7 @@ subroutine jpar0(ip,n,it,itp)
     enddo
 #ifdef GPU
 !$acc end parallel
+!$acc end data
 #endif
     !   enforce periodicity
     if(itp==1)call enforce(myupa(:,:,:))
@@ -6441,7 +6486,7 @@ subroutine den0_phi(ip,n,it)
         return
     end if
 #ifdef GPU
-!$acc parallel
+!$acc parallel 
 !$acc loop gang vector
 #endif
     do m=1,mme
@@ -6646,7 +6691,7 @@ subroutine setw(ip,n)
     !$omp parallel do &
     !$omp private(r,th,i,j,k,wx0,wx1,wy0,wy1,wz0,wz1,bfldp,ter,b,vfac,xt,yt,zt,wght)
 #else
-    !$acc parallel
+    !$acc parallel 
     !$acc loop gang vector
 #endif
     do m=1,mme
@@ -10351,7 +10396,6 @@ subroutine flut
     bfcnt = (icgp+1)*(jcgp+1)*(negrd+1)*(nlgrd+1)
 
     !find the temporary position due to nonlinear terms
-
     !$omp parallel do &
     !$omp private(i,j,k,r,th,wx0,wx1,wy0,wy1,wz0,wz1,grcgtp,bfldp,radiusp,qhatp,fp,jfnp,psipp,b,xt,yt) &
     !$omp private(x000,x001,x010,x011,x100,x101,x110,x111,exp1,eyp,ezp,delbxp,delbyp,dadzp,vpar,dum2,vxdum,xdot,ydot,pzdot)
@@ -10448,7 +10492,6 @@ subroutine flut
         ytmp(m) = y3e(m) + dte*ydot
         ytmp(m) = modulo(ytmp(m),ly)
     end do
-
 
 
 
@@ -10797,8 +10840,13 @@ subroutine weatxeps(igtilde)
 
     myavw = 0.
     myg = 0.
+#ifndef GPU
     !$omp parallel do &
-    !$omp private(i,k,ie,r,th,wx0,wx1,wz0,wz1,b,ter,xnp,vfac,xt) 
+    !$omp private(i,k,ie,r,th,wx0,wx1,wz0,wz1,b,ter,xnp,vfac,xt)
+#else
+    !$acc parallel 
+    !$acc loop gang vector
+#endif
     do m=1,mme
         r=x3e(m)-0.5*lx+lr0
 
@@ -10827,15 +10875,24 @@ subroutine weatxeps(igtilde)
         ie = int(vfac/desrc)
 
         if(ie.gt.(nesrc-1)) goto 100
-
+#ifndef GPU
         !$omp atomic
+#else
+        !$acc atomic update
+#endif
         myavw(i,ie) = myavw(i,ie)+w3e(m)
+#ifndef GPU
         !$omp atomic
+#else
+        !$acc atomic update
+#endif
         myg(i,ie) = myg(i,ie)+1
 
         100  continue
     end do
-
+#ifdef GPU
+!$acc end parallel
+#endif
     if(idg==1)write(*,*)'before reduce'
     call MPI_ALLREDUCE(myavw,  &
         avw,             &
@@ -10987,8 +11044,13 @@ subroutine wiatxeps(ns,igtilde)
 
     myavw = 0.
     myg = 0.
+#ifndef GPU
     !$omp parallel do &
-    !$omp private(i,k,ie,r,th,wx0,wx1,wz0,wz1,b,ter,xnp,vfac,xt) 
+    !$omp private(i,k,ie,r,th,wx0,wx1,wz0,wz1,b,ter,xnp,vfac,xt)
+#else
+    !$acc parallel 
+    !$acc loop gang vector
+#endif
     do m=1,mm(ns)
         r=x3(m,ns)-0.5*lx+lr0
 
@@ -11012,19 +11074,29 @@ subroutine wiatxeps(ns,igtilde)
 
         xt = x3(m,ns)
         i=int(xt/dxsrc)
+        
         i = min(i,nxsrc-1)
         ie = int(vfac/desrc)
 
-        if(ie.gt.(nesrc-1)) goto 100
-
+        if(ie.gt.(nesrc-1) .or. (i .lt. 1) .or. (i .gt. (nxsrc-1)) .or. (ie .lt. 1) .or. (m .gt. mmx) ) goto 100
+#ifndef GPU
         !$omp atomic
+#else
+        !$acc atomic update
+#endif
         myavw(i,ie) = myavw(i,ie)+w3(m,ns)
+#ifndef GPU
         !$omp atomic
+#else
+        !$acc atomic update
+#endif
         myg(i,ie) = myg(i,ie)+1
 
         100  continue
     end do
-
+#ifdef GPU
+!$acc end parallel
+#endif
     if(idg==1)write(*,*)'before reduce'
     call MPI_ALLREDUCE(myavw,  &
         avw,             &
@@ -11250,7 +11322,7 @@ subroutine pbi(ns)
     real :: aparhp
 
 #ifdef GPU
-    !$acc parallel
+    !$acc parallel 
     !$acc loop gang vector private(rhox,rhoy)
 #endif
     do m=1,mm(ns)
@@ -11351,7 +11423,7 @@ subroutine pbe
     real :: aparhp
 
 #ifdef GPU
-    !$acc parallel
+    !$acc parallel 
     !$acc loop gang vector
 #endif
     do m=1,mme

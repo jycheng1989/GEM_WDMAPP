@@ -139,7 +139,7 @@ CONTAINS
     
     dzz = lz / nvp !step-length along z directioisn
 #ifdef GPU
-    !$acc parallel present(xp,iz_arr)
+    !$acc parallel  present(xp,iz_arr)
     !$acc loop gang vector
 #endif
     do ip=1,np
@@ -161,8 +161,8 @@ CONTAINS
     !$acc end data
     
     !$acc data present(s_counts,iz_arr)
-    !$acc parallel
-    !$acc loop gang vector 
+    !$acc parallel 
+    !$acc loop gang vector
 #endif
     DO ip = 1,np
        iz =iz_arr(ip)
@@ -1051,10 +1051,9 @@ tottm_5=end_tm-start_tm
 subroutine ppinit_mpi(idproc,nproc)
   use mpi
   integer, intent(out) :: idproc,nproc
-  integer :: ierr,npp,provided
+  integer :: ierr,npp
 
-  !call mpi_init(ierr)
-  call mpi_init_thread(MPI_THREAD_MULTIPLE, provided, ierr)
+  call mpi_init(ierr)
   if (ierr.ne.MPI_SUCCESS) then
     write(*,*) 'problem with mpi_init: ierr=',ierr
     stop
@@ -1097,7 +1096,7 @@ end subroutine ppinit_decomp
 !===========================================================================
   SUBROUTINE ppexit
     INTEGER :: ierr
-    !CALL MPI_FINALIZE(ierr)
+    CALL MPI_FINALIZE(ierr)
     STOP
   END SUBROUTINE ppexit
 !

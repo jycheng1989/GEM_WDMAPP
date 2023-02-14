@@ -45,18 +45,18 @@ subroutine cce_send_density_ion(iden)
   type(adios2_variable) :: varid
 
   integer :: i
-  real :: iden_xgc(cce_all_node_number,nphi)
+  !real :: iden_xgc(cce_all_node_number,nphi)
   
-  call mapping_GEM_XGC_new(density_3d,pot_density_3d,iden,grid,mapping_GEM_XGC_linear_coef)
-  iden_xgc(:,:)=pot_density_3d(:,:)*nu
+  call mapping_GEM_XGC_new(iden,grid,mapping_GEM_XGC_linear_coef,nu)
 
   !do i=2,nphi
   !   iden_xgc(:,i)=pot_density_3d(:,nphi-i+2)*nu
   !enddo
+  !pot_density_3d(:,:)=pot_density_3d(:,:)*nu
   if(myid==0)then
     if(.not. init)then
-      gdims(1)=cce_all_node_number
-      gdims(2)=nphi
+      gdims(1)=cce_all_node_number !1M
+      gdims(2)=nphi !64
       goffset(1)=0
       goffset(2)=0
       ldims(1)=cce_all_node_number
@@ -70,9 +70,11 @@ subroutine cce_send_density_ion(iden)
     endif
 
       call adios2_begin_step(engine, adios2_step_mode_append, ierr)
-      call adios2_put(engine, "idensity",  iden_xgc, ierr)
+      call adios2_put(engine, "idensity",  pot_density_3d, ierr)
       call adios2_end_step(engine,ierr) 
   endif
+
+  call mpi_barrier(mpi_comm_world,ierr)
 end subroutine cce_send_density_ion
 
 subroutine cce_send_density_electron(eden)
@@ -91,11 +93,9 @@ subroutine cce_send_density_electron(eden)
   type(adios2_variable) :: varid
 
   integer :: i
-  real :: eden_xgc(cce_all_node_number,nphi)
 
-  call mapping_GEM_XGC_new(density_3d,pot_density_3d,eden,grid,mapping_GEM_XGC_linear_coef)
+  call mapping_GEM_XGC_new(eden,grid,mapping_GEM_XGC_linear_coef,nu)
 
-  eden_xgc(:,:)=pot_density_3d(:,:)*nu
   !do i=2,nphi
   !   eden_xgc(:,i)=pot_density_3d(:,nphi-i+2)*nu
   !enddo
@@ -117,7 +117,7 @@ subroutine cce_send_density_electron(eden)
     endif
 
       call adios2_begin_step(engine, adios2_step_mode_append, ierr)
-      call adios2_put(engine, "edensity",  eden_xgc, ierr)
+      call adios2_put(engine, "edensity",  pot_density_3d, ierr)
       call adios2_end_step(engine,ierr)
   endif
 end subroutine cce_send_density_electron
@@ -139,13 +139,13 @@ subroutine cce_send_current_ion(ijpar)
   real :: e,j_env
 
   integer :: i
-  real :: ijpar_xgc(cce_all_node_number,nphi)
+  !real :: ijpar_xgc(cce_all_node_number,nphi)
 
   e=1.6022e-19
   j_env=nu*vu
 
-  call mapping_GEM_XGC_new(density_3d,pot_density_3d,ijpar,grid,mapping_GEM_XGC_linear_coef)
-  ijpar_xgc(:,:)=pot_density_3d(:,:)*j_env
+  call mapping_GEM_XGC_new(ijpar,grid,mapping_GEM_XGC_linear_coef,j_env)
+  !ijpar_xgc(:,:)=pot_density_3d(:,:)*j_env
   !do i=2,nphi
   !   ijpar_xgc(:,i)=pot_density_3d(:,nphi-i+2)*j_env
   !enddo
@@ -167,7 +167,7 @@ subroutine cce_send_current_ion(ijpar)
     endif
 
       call adios2_begin_step(engine, adios2_step_mode_append, ierr)
-      call adios2_put(engine, "ijpar", ijpar_xgc, ierr)
+      call adios2_put(engine, "ijpar", pot_density_3d, ierr)
       call adios2_end_step(engine,ierr)
   endif
 
@@ -189,13 +189,13 @@ subroutine cce_send_current_electron(ejpar)
   real :: e,j_env
   
   integer :: i
-  real :: ejpar_xgc(cce_all_node_number,nphi)
+  !real :: ejpar_xgc(cce_all_node_number,nphi)
   e=1.6022e-19
   j_env=nu*vu
 
-  call mapping_GEM_XGC_new(density_3d,pot_density_3d,ejpar,grid,mapping_GEM_XGC_linear_coef)
+  call mapping_GEM_XGC_new(ejpar,grid,mapping_GEM_XGC_linear_coef,j_env)
 
-  ejpar_xgc(:,:)=pot_density_3d(:,:)*j_env
+  !ejpar_xgc(:,:)=pot_density_3d(:,:)*j_env
   !do i=2,nphi
   !   ejpar_xgc(:,i)=pot_density_3d(:,nphi-i+2)*j_env
   !enddo
@@ -217,7 +217,7 @@ subroutine cce_send_current_electron(ejpar)
     endif
 
       call adios2_begin_step(engine, adios2_step_mode_append, ierr)
-      call adios2_put(engine, "ejpar",  ejpar_xgc, ierr)
+      call adios2_put(engine, "ejpar", pot_density_3d, ierr)
       call adios2_end_step(engine,ierr)
   endif
 
@@ -225,7 +225,7 @@ end subroutine cce_send_current_electron
 
 subroutine cce_receive_pot(phi_gem)
   use gem_com, only : imx,jmx
-  use mapping, only : mapping_XGC_GEM_new, pot_field_3d, field_3d, grid, mapping_XGC_GEM_linear_coef, nphi, cce_all_node_number
+  use mapping, only : mapping_XGC_GEM_new, pot_density_3d, density_3d, grid, mapping_XGC_GEM_linear_coef, nphi, cce_all_node_number
   use gem_equil, only: Tu
   use adios2_comm_module
   implicit none
@@ -240,7 +240,7 @@ subroutine cce_receive_pot(phi_gem)
   real :: e,phi_env
 
   integer :: i
-  real :: dpot_xgc(cce_all_node_number,nphi)
+  !real :: dpot_xgc(cce_all_node_number,nphi)
 
   e=1.6022e-19
   phi_env=e/Tu
@@ -258,21 +258,21 @@ subroutine cce_receive_pot(phi_gem)
     call adios2_begin_step(engine, adios2_step_mode_read, ierr)
     call adios2_inquire_variable(varid, io_field, "pot", ierr)
     call adios2_set_selection(varid, 2, starts, counts, ierr)
-    call adios2_get(engine, varid, pot_field_3d, adios2_mode_deferred, ierr)
+    call adios2_get(engine, varid, pot_density_3d, adios2_mode_deferred, ierr)
     call adios2_end_step(engine, ierr)
-    pot_field_3d=pot_field_3d*phi_env
-    dpot_xgc(:,:)=pot_field_3d(:,:)
+    !pot_density_3d=pot_density_3d*phi_env
+    !idpot_xgc(:,:)=pot_density_3d(:,:)
     !do i=2,nphi
-    !   dpot_xgc(:,i)=pot_field_3d(:,nphi-i+2)
+    !   dpot_xgc(:,i)=pot_density_3d(:,nphi-i+2)
     !enddo
   endif
 
-  call mapping_XGC_GEM_new(dpot_xgc,phi_gem,field_3d,grid,mapping_XGC_GEM_linear_coef)
+  call mapping_XGC_GEM_new(phi_gem,grid,mapping_XGC_GEM_linear_coef,phi_env)
 
 end subroutine cce_receive_pot
 subroutine cce_receive_as(as_gem)
   use gem_com, only : imx,jmx
-  use mapping, only : mapping_XGC_GEM_new, pot_field_3d, field_3d, grid, mapping_XGC_GEM_linear_coef, nphi, cce_all_node_number
+  use mapping, only : mapping_XGC_GEM_new, pot_density_3d, density_3d, grid, mapping_XGC_GEM_linear_coef, nphi, cce_all_node_number
   use gem_equil, only: Tu,vu
   use adios2_comm_module
   implicit none
@@ -287,7 +287,7 @@ subroutine cce_receive_as(as_gem)
   real :: e,A_env
   
   integer :: i
-  real :: As_xgc(cce_all_node_number,nphi)
+  !real :: As_xgc(cce_all_node_number,nphi)
 
   e=1.6022e-19
   A_env=e*vu/Tu
@@ -305,20 +305,20 @@ subroutine cce_receive_as(as_gem)
     call adios2_begin_step(engine, adios2_step_mode_read, ierr)
     call adios2_inquire_variable(varid, io_field, "As", ierr)
     call adios2_set_selection(varid, 2, starts, counts, ierr)
-    call adios2_get(engine, varid, pot_field_3d, adios2_mode_deferred, ierr)
+    call adios2_get(engine, varid, pot_density_3d, adios2_mode_deferred, ierr)
     call adios2_end_step(engine, ierr)
-    pot_field_3d=pot_field_3d*A_env
-    As_xgc(:,:)=-pot_field_3d(:,:)
+    !pot_density_3d=pot_density_3d*A_env
+    !As_xgc(:,:)=-pot_density_3d(:,:)
     !do i=2,nphi
-    !   As_xgc(:,i)=pot_field_3d(:,nphi-i+2)
+    !   As_xgc(:,i)=pot_density_3d(:,nphi-i+2)
     !enddo
   endif
 
-  call mapping_XGC_GEM_new(As_xgc,as_gem,field_3d,grid,mapping_XGC_GEM_linear_coef)
+  call mapping_XGC_GEM_new(as_gem,grid,mapping_XGC_GEM_linear_coef,A_env)
 end subroutine cce_receive_as
 subroutine cce_receive_ah(ah_gem)
   use gem_com, only : imx,jmx
-  use mapping, only : mapping_XGC_GEM_new, pot_field_3d, field_3d, grid, mapping_XGC_GEM_linear_coef, nphi, cce_all_node_number
+  use mapping, only : mapping_XGC_GEM_new, pot_density_3d, density_3d, grid, mapping_XGC_GEM_linear_coef, nphi, cce_all_node_number
   use gem_equil, only: Tu,vu
   use adios2_comm_module
   implicit none
@@ -333,7 +333,7 @@ subroutine cce_receive_ah(ah_gem)
   real :: e,A_env
 
   integer :: i
-  real :: Ah_xgc(cce_all_node_number,nphi)
+  !real :: Ah_xgc(cce_all_node_number,nphi)
   e=1.6022e-19
   A_env=e*vu/Tu
 
@@ -350,16 +350,16 @@ subroutine cce_receive_ah(ah_gem)
     call adios2_begin_step(engine, adios2_step_mode_read, ierr)
     call adios2_inquire_variable(varid, io_field, "Ah", ierr)
     call adios2_set_selection(varid, 2, starts, counts, ierr)
-    call adios2_get(engine, varid, pot_field_3d, adios2_mode_deferred, ierr)
+    call adios2_get(engine, varid, pot_density_3d, adios2_mode_deferred, ierr)
     call adios2_end_step(engine, ierr)
-    pot_field_3d=pot_field_3d*A_env
-    Ah_xgc(:,:)=-pot_field_3d(:,:)
+    !pot_density_3d=pot_density_3d*A_env
+    !Ah_xgc(:,:)=-pot_density_3d(:,:)
     !do i=2,nphi
-    !   Ah_xgc(:,i)=pot_field_3d(:,nphi-i+2)
+    !   Ah_xgc(:,i)=pot_density_3d(:,nphi-i+2)
     !enddo
   endif
 
-  call mapping_XGC_GEM_new(Ah_xgc,ah_gem,field_3d,grid,mapping_XGC_GEM_linear_coef)
+  call mapping_XGC_GEM_new(ah_gem,grid,mapping_XGC_GEM_linear_coef,A_env)
 end subroutine cce_receive_ah
 subroutine cce_send_pot(ejpar)
   use gem_com, only : imx,jmx,ntube
@@ -382,9 +382,9 @@ subroutine cce_send_pot(ejpar)
   e=1.6022e-19
   j_env=e/Tu*real(ntube)
 
-  call mapping_GEM_XGC_new(density_3d,pot_density_3d,ejpar,grid,mapping_GEM_XGC_linear_coef)
+  call mapping_GEM_XGC_new(ejpar,grid,mapping_GEM_XGC_linear_coef,j_env)
 
-  ejpar_xgc(:,:)=pot_density_3d(:,:)/j_env
+  ejpar_xgc(:,:)=pot_density_3d(:,:)
   !do i=2,nphi
   !   ejpar_xgc(:,i)=pot_density_3d(:,nphi-i+2)*j_env
   !enddo
@@ -432,9 +432,9 @@ subroutine cce_send_as(ejpar)
   e=1.6022e-19
   j_env=e*vu/Tu*real(ntube)
 
-  call mapping_GEM_XGC_new(density_3d,pot_density_3d,ejpar,grid,mapping_GEM_XGC_linear_coef)
+  call mapping_GEM_XGC_new(ejpar,grid,mapping_GEM_XGC_linear_coef,j_env)
 
-  ejpar_xgc(:,:)=pot_density_3d(:,:)/j_env
+  ejpar_xgc(:,:)=pot_density_3d(:,:)
   !do i=2,nphi
   !   ejpar_xgc(:,i)=pot_density_3d(:,nphi-i+2)*j_env
   !enddo
@@ -482,9 +482,9 @@ subroutine cce_send_ah(ejpar)
   e=1.6022e-19
   j_env=e*vu/Tu*real(ntube)
 
-  call mapping_GEM_XGC_new(density_3d,pot_density_3d,ejpar,grid,mapping_GEM_XGC_linear_coef)
+  call mapping_GEM_XGC_new(ejpar,grid,mapping_GEM_XGC_linear_coef,j_env)
 
-  ejpar_xgc(:,:)=pot_density_3d(:,:)/j_env
+  ejpar_xgc(:,:)=pot_density_3d(:,:)
   !do i=2,nphi
   !   ejpar_xgc(:,i)=pot_density_3d(:,nphi-i+2)*j_env
   !enddo

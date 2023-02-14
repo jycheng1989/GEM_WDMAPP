@@ -13,7 +13,7 @@ MODULE gem_equil
   real :: r0a,lxa,lymult,lxmult,delra,delri,delre,delrn,rina,routa,betai,betae, &
                tir0,xnir0
 
-  integer :: nr=240,nr2=240,ntheta=512,idiag=0,isgnf=1,isgnq=-1
+  integer :: nr=400,nr2=400,ntheta=1024,idiag=0,isgnf=1,isgnq=-1
   real,dimension(:,:),allocatable :: bfld,qhat,radius,gr,gth,grdgt,grcgt, &
                                         gxdgy,dydr,dbdr,dbdth,jacob, &
                                         yfn,hght,thflx
@@ -56,7 +56,7 @@ contains
     real(8) :: rdum,rdum1,thdum,thdum1,wx0,wx1,wy0,wy1
     integer :: jleft, jright
     real :: drgem,dthgem
-    integer :: nrgem=301,nthgem=513,nrxgc=301
+    integer :: nrgem=501,nthgem=1025,nrxgc=501
     real, dimension(:,:), allocatable :: dqhdr    
     real, dimension(:,:), allocatable :: rdata,zdata
     real, dimension(:), allocatable :: rgem,psigem,qgem,fgem,tigem,tegem,nigem,negem,psi_nor_output
@@ -127,35 +127,43 @@ contains
     !Normalization
     e = 1.6022e-19
     proton = 1.6720e-27
-    Bu = 2.09
-    Tu = 2.701635e03*e
+    Bu = 5.3
+    Tu = 2.845593e+04*e
     omegau = e*Bu/proton
     frequ = omegau
     rhoi=sqrt(tu/(mimp*proton))/(abs(chgi)*e*Bu/(mimp*proton)) !yjhu added
     vu = sqrt(Tu/proton)
     xu = proton*vu/(e*Bu)
-    nu = 4.940663e+19
+    nu = 8.441875e19
     beta = 4*3.14159*1e-7*nu*Tu/Bu**2 
     debye = (8.85e-12*Tu/(nu*e**2)) / xu**2
     !write(*,*) 'betaU=', beta
 
     open(113,file='profiles-1d.dat',status='old',action='read')
     do i = 1,nrgem
-       read(113,204)rgem(i),qgem(i),fgem(i) ,negem(i),nigem(i),tegem(i),tigem(i),dum,dum,dum,dum,psi_nor_output(i)
+       read(113,*)rgem(i),qgem(i),fgem(i) ,negem(i),nigem(i),tegem(i),tigem(i),dum,dum,dum,dum,psi_nor_output(i)
     end do
     close(113)
     open(116,file='rdata.dat',status='old',action='read')
     do i = 1,nrgem
-       read(116,204)(rdata(i,j),j=1,nthgem)
+       read(116,*)(rdata(i,j),j=1,nthgem)
     end do
     close(116)
     open(117,file='zdata.dat',status='old',action='read')
     do i = 1,nrgem
-       read(117,204)(zdata(i,j),j=1,nthgem)
+       read(117,*)(zdata(i,j),j=1,nthgem)
     end do
     close(117)
 201 format(2e16.9)    
-
+    
+    dum=negem(nrgem)
+    nigem=nigem/dum
+    negem=negem/dum
+    dum=tegem(nrgem)
+    tegem=tegem/dum
+    tigem=tigem/dum
+   
+   
     !normalize psigem
     psigem=rgem
     dum = psigem(nrgem)
@@ -189,7 +197,7 @@ contains
        open(113,file='1d.dat',status='replace')
        write(113,*)k
        do i=1,nrxgc
-          write(113,204)psigem(i),psinxgc(i),tixgc(i),texgc(i),nexgc(i)
+          write(113,204)psigem(i),psinxgc(i),tixgc(i),texgc(i),nexgc(i),qgem(i),fgem(i)
        enddo
        close(113)
     endif
@@ -694,6 +702,8 @@ contains
        do i = 0,nr
           write(11,10)i,sf(i),f(i),t0i(i),t0e(i),xn0i(i),xn0e(i),capti(i)*rmaj0,capte(i)*rmaj0,capni(i)*rmaj0,capne(i)*rmaj0
        end do
+       call flush(11)
+       close(11)
     end if
       
   end subroutine new_equil
