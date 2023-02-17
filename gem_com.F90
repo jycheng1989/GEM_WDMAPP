@@ -163,6 +163,7 @@ module gem_com
   INTEGER :: GCLR,TCLR,GLST,TLST
   INTEGER :: stat(MPI_STATUS_SIZE)
   INTEGER :: lngbr,rngbr,idprv,idnxt
+  integer :: gem_comm_world
 
   character(len=*) directory
   parameter(directory='./dump/')

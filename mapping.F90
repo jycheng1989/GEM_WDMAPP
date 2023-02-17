@@ -72,6 +72,7 @@ module mapping
 
   !input parameters
   integer :: cce_first_surface,cce_last_surface,cce_all_field_node_number,cce_all_surface_node_number,nwedge,cce_all_node_number,nphi,coef_opt
+  integer :: procsperwriter=1
   character(256) :: eq_filename,node_filename,surf_filename
  
   logical, save :: test_mapping_logical=.false.
@@ -102,7 +103,7 @@ subroutine mapping_init
   real, external :: interpol_spl_1d
   type(EZspline1_r8) :: spl_thflx
   
-  namelist /mapping/ cce_first_surface,cce_last_surface,nphi,nwedge, coef_opt,eq_filename,node_filename,surf_filename
+  namelist /mapping/ cce_first_surface,cce_last_surface,nphi,nwedge, coef_opt,eq_filename,node_filename,surf_filename,procsperwriter
   
   open(unit=20,file='mapping.in',status='old',action='read')
   read(20,nml=mapping)

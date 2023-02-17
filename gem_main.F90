@@ -173,7 +173,7 @@ subroutine init
     pi=4.0*atan(1.0)
     pi2 = pi*2.
 
-    call ppinit_mpi(myid,numprocs)
+    call ppinit_mpi(myid,numprocs,gem_comm_world)
     last=numprocs-1
     !the initial timestep index
     timestep=0

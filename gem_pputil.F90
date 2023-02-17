@@ -1048,9 +1048,12 @@ tottm_5=end_tm-start_tm
   END SUBROUTINE disp2r
 !======================================================================
 !mpi initialization
-subroutine ppinit_mpi(idproc,nproc)
+subroutine ppinit_mpi(idproc,nproc,newcomm,gemcolor)
   use mpi
   integer, intent(out) :: idproc,nproc
+  integer, intent(out) :: newcomm
+  integer, intent(in), optional :: gemcolor
+  integer :: color
   integer :: ierr,npp
 
   call mpi_init(ierr)
@@ -1070,6 +1073,18 @@ subroutine ppinit_mpi(idproc,nproc)
     write(*,*) 'problem with mpi_comm_rank: ierr=',ierr
     stop
   endif
+  
+  if (present(gemcolor)) then
+	  color = gemcolor
+  else
+	  color = 456
+  end if
+  call mpi_comm_split(mpi_comm_world, color, me, newcomm, ierr)
+  if (ierr.ne.MPI_SUCCESS) then
+	  write(*,*) 'problem with mpi_comm_split: ierr=',ierr
+	  stop
+  end if
+
   nproc=npp
   idproc=me 
 end subroutine ppinit_mpi
